@@ -1,0 +1,10 @@
+tmp/
+results/
+__pycache__/
+*.pyc
+*.so
+build/
+dist/
+*.egg-info/
+.ipynb_checkpoints/
+*.swp
