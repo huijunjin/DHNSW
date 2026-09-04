@@ -113,6 +113,41 @@ def calculate_density_random_projection(data, k, seed=None):
     return np.mean(distances, axis=1)
 
 
+DENSITY_METHODS = ("rp", "pca", "lsh")
+
+
+def calculate_density(data, k, seed=None, method="rp"):
+    """Local density estimate with a swappable projection (C8 ablation).
+
+    The paper projects with a dense Gaussian random projection ("rp"); C8 asks
+    what a data-dependent (PCA) or cheaper sparse (LSH-style) projection buys
+    or costs. Every method keeps the same target dimension and the same kNN
+    step, so only the projection differs. "rp" delegates to the original
+    function, unchanged.
+    """
+    if method == "rp":
+        return calculate_density_random_projection(data, k, seed)
+
+    n_components = max(1, data.shape[1] // 3)
+    if method == "pca":
+        from sklearn.decomposition import PCA
+        proj = PCA(n_components=n_components, random_state=seed)
+    elif method == "lsh":
+        # Sparse random projection: the same JL guarantee as the Gaussian one
+        # at a fraction of the projection cost, and the primitive underneath
+        # most LSH families.
+        from sklearn.random_projection import SparseRandomProjection
+        proj = SparseRandomProjection(n_components=n_components, random_state=seed)
+    else:
+        raise ValueError(f"unknown density method: {method}")
+
+    reduced = proj.fit_transform(data)
+    knn = NearestNeighbors(n_neighbors=k, algorithm="brute", metric="euclidean")
+    knn.fit(reduced)
+    distances, _ = knn.kneighbors(reduced)
+    return np.mean(distances, axis=1)
+
+
 def adjust_ef_by_dim(ef_base, dim):
     """ef_ref, paper Eq. (1)."""
     return ef_base + (dim // EF_SCALE_FACTOR) ** 2
@@ -221,6 +256,9 @@ def build_arg_parser():
     p.add_argument("--cv-transform", default="linear", choices=list(CV_TRANSFORMS),
                    help="C7 ablation (see PLAN.md): how the CV term scales into the M/ef "
                         "range. 'linear' is the paper's original formula, unchanged.")
+    p.add_argument("--density-method", default="rp", choices=list(DENSITY_METHODS),
+                   help="C8 ablation: projection used for the density estimate. "
+                        "'rp' is the paper's Gaussian random projection, unchanged.")
     p.add_argument("--out", default=None, help="CSV path to write.")
     return p
 
@@ -236,7 +274,8 @@ def main():
         print(f"Running experiments for {name}...  train={train.shape} query={queries.shape}")
 
         ef_vanilla = adjust_ef_by_dim(EF_VANILLA_BASE, train.shape[1])
-        densities = calculate_density_random_projection(train, k=M_VANILLA, seed=args.seed)
+        densities = calculate_density(train, k=M_VANILLA, seed=args.seed,
+                                      method=args.density_method)
 
         knn = NearestNeighbors(n_neighbors=args.top_k, algorithm="brute", metric="euclidean")
         knn.fit(train)
@@ -253,7 +292,8 @@ def main():
         for variant, res in (("DHNSW", dyn), ("Vanilla HNSW", van)):
             rows.append({"Dataset": name, "Variant": variant, "N": len(train),
                          "Dim": train.shape[1], "ef_ref": ef_vanilla, "seed": args.seed,
-                         "CV_Transform": args.cv_transform, **res})
+                         "CV_Transform": args.cv_transform,
+                         "Density_Method": args.density_method, **res})
 
         t_imp = (van["Build_Time_s"] - dyn["Build_Time_s"]) / van["Build_Time_s"] * 100
         m_imp = (van["Memory_MB"] - dyn["Memory_MB"]) / van["Memory_MB"] * 100
