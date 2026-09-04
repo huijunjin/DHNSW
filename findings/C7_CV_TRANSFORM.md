@@ -5,9 +5,8 @@ is justified or arbitrary. The original research validated it but kept no
 results, so it was re-run from scratch here.
 
 ```bash
-python scripts/run_c7_ablation.py --seed 42 \
-    --out ablation/c7_cv_transform_mnist.csv \
-    --plot ablation/c7_cv_transform_mnist.png
+python scripts/run_c7_ablation.py --seed 42
+# -> results/phase1/c7_cv_transform_mnist.{csv,png}
 ```
 
 MNIST, 60,000 base vectors, 100 queries, seed 42, λ = 1.5, M = 16, ef_ref = 149.
@@ -37,7 +36,7 @@ They differ only in that mapping. `linear` is the paper's formula, unchanged.
 | **`linear`** | **0.395** | **[9, 22]** | **536.58 s** | **−16.97 %** | **97.56 MB** | **−36.37 %** | **98.14 %** | **−1.19 %p** | **17.78** |
 | `sqrt` | 0.770 | [3, 28] | 453.17 s | −29.88 % | 73.80 MB | −51.87 % | 85.66 % | −13.67 %p | 9.42 |
 
-![C7 ablation](c7_cv_transform_mnist.png)
+![C7 ablation](../results/phase1/c7_cv_transform_mnist.png)
 
 ## Reading
 

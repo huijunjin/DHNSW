@@ -1,5 +1,4 @@
 tmp/
-results/
 __pycache__/
 *.pyc
 *.so
@@ -10,3 +9,4 @@ dist/
 *.swp
 CLAUDE.md
 PLAN.md
+PROGRESS.md

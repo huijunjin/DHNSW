@@ -14,9 +14,8 @@ array -- so the comparison isolates the CV-term formula, and the sweep costs
 one vanilla build plus N dynamic builds rather than 2N.
 
 Example (full MNIST, matches the golden master's seed):
-    python scripts/run_c7_ablation.py --seed 42 \
-        --out ablation/c7_cv_transform_mnist.csv \
-        --plot ablation/c7_cv_transform_mnist.png
+    python scripts/run_c7_ablation.py --seed 42
+    # -> results/phase1/c7_cv_transform_mnist.{csv,png}
 
 Smoke test (~60s):
     python scripts/run_c7_ablation.py --smoke
@@ -35,6 +34,9 @@ from run_baseline import (  # noqa: E402
     measure_performance,
 )
 from dhnsw import HNSW, DynamicHNSW  # noqa: E402
+from exp_common import (  # noqa: E402
+    add_common_args, order_columns, resolve_outputs, run_metadata, save_csv,
+)
 
 VANILLA_KEY = "vanilla"
 
@@ -50,28 +52,19 @@ def build_arg_parser():
     p.add_argument("--num-vectors", type=int, default=60000)
     p.add_argument("--num-query-vectors", type=int, default=100)
     p.add_argument("--top-k", type=int, default=TOP_K)
-    p.add_argument("--seed", type=int, default=42,
-                   help="Shared random_state for the RP density estimate, so every "
-                        "transform sees the same densities. Default matches the golden "
-                        "master (baseline/dhnsw_mnist.csv).")
     p.add_argument("--transforms", nargs="+", default=list(CV_TRANSFORMS),
                    choices=list(CV_TRANSFORMS))
-    p.add_argument("--smoke", action="store_true",
-                   help="Small run (~60s) to sanity-check the pipeline: caps "
-                        "num-vectors/num-query-vectors instead of using the full dataset.")
-    p.add_argument("--resume", action="store_true",
-                   help="Skip variants already present in --out and append the rest.")
-    p.add_argument("--out", default="ablation/c7_cv_transform_mnist.csv",
-                   help="CSV path to write (appended to incrementally, per variant).")
-    p.add_argument("--plot", default="ablation/c7_cv_transform_mnist.png",
-                   help="Comparison chart path. Empty string skips plotting.")
+    # --phase / --seed / --smoke / --resume / --out / --plot (PLAN.md convention).
+    # The seed default matches the golden master (baseline/dhnsw_mnist.csv), and
+    # is shared across transforms so every one sees the same densities.
+    add_common_args(p)
     return p
 
 
 def _load_existing(out_path):
     if os.path.exists(out_path):
         df = pd.read_csv(out_path)
-        return df, set(df["CV_Transform"])
+        return df, set(df["variant"])
     return pd.DataFrame(), set()
 
 
@@ -86,11 +79,11 @@ def add_derived_columns(df):
     """
     cols = {"Delta": [], "M_low": [], "M_high": [], "ef_low": [], "ef_high": []}
     for _, r in df.iterrows():
-        if r["CV_Transform"] == VANILLA_KEY:
+        if r["variant"] == VANILLA_KEY:
             for c in cols:
                 cols[c].append(float("nan"))
             continue
-        delta = cv_delta_factor(r["CV"], SCALE_FACTOR, r["CV_Transform"])
+        delta = cv_delta_factor(r["CV"], SCALE_FACTOR, r["variant"])
         ef_ref = r["ef_ref"]
         cols["Delta"].append(delta)
         cols["M_low"].append(max(2, int(M_VANILLA - M_VANILLA * delta)))
@@ -114,8 +107,8 @@ def _plot(df, dataset, out_path):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    van = df[df["CV_Transform"] == VANILLA_KEY]
-    var = df[df["CV_Transform"] != VANILLA_KEY].sort_values("Delta")
+    van = df[df["variant"] == VANILLA_KEY]
+    var = df[df["variant"] != VANILLA_KEY].sort_values("Delta")
     if van.empty or var.empty:
         print("Skipping plot: need the vanilla row and at least one variant.")
         return
@@ -149,7 +142,7 @@ def _plot(df, dataset, out_path):
     for ax, ys, show_mlow in ((ax1, mem_imp, False), (ax2, var["Recall_pct"], True)):
         ax.margins(x=0.14, y=0.22)
         for i, (x, y, name, mlow) in enumerate(
-                zip(var["Delta"], ys, var["CV_Transform"], var["M_low"])):
+                zip(var["Delta"], ys, var["variant"], var["M_low"])):
             label = f"{name}\n$M_{{low}}$={int(mlow)}" if show_mlow else name
             ax.annotate(label, (x, y), textcoords="offset points",
                         xytext=(0, 13 if i % 2 else -31), ha="center", fontsize=8.5)
@@ -164,12 +157,13 @@ def _plot(df, dataset, out_path):
 
 def main():
     args = build_arg_parser().parse_args()
+    out, plot_path = resolve_outputs(args, f"c7_cv_transform_{args.dataset}")
 
     if args.smoke:
         args.num_vectors = min(args.num_vectors, 2000)
         args.num_query_vectors = min(args.num_query_vectors, 20)
 
-    existing_df, done = (_load_existing(args.out) if args.resume
+    existing_df, done = (_load_existing(out) if args.resume
                          else (pd.DataFrame(), set()))
     rows = existing_df.to_dict("records")
 
@@ -179,12 +173,11 @@ def main():
         # Everything measured already: refresh the derived columns and the
         # figure from the stored CSV, so the chart can be regenerated without
         # paying for the sweep again.
-        print(f"Nothing to measure -- {args.out} already has every requested variant.")
-        df = add_derived_columns(existing_df)
-        df.to_csv(args.out, index=False)
+        print(f"Nothing to measure -- {out} already has every requested variant.")
+        df = save_csv(order_columns(add_derived_columns(existing_df)), out)
         print("\n" + df.to_string(index=False))
-        if args.plot:
-            _plot(df, str(df["Dataset"].iloc[0]), args.plot)
+        if plot_path:
+            _plot(df, str(df["dataset"].iloc[0]), plot_path)
         return
 
     print(f"Loading {args.dataset} dataset...")
@@ -201,13 +194,7 @@ def main():
     true_neighbors = knn.kneighbors(queries, n_neighbors=args.top_k, return_distance=False)
 
     def save():
-        df = add_derived_columns(pd.DataFrame(rows))
-        os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
-        df.to_csv(args.out, index=False)
-        return df
-
-    common = {"Dataset": args.dataset, "N": len(train), "Dim": train.shape[1],
-              "ef_ref": ef_vanilla, "seed": args.seed}
+        return save_csv(order_columns(add_derived_columns(pd.DataFrame(rows))), out)
 
     for variant in needed:
         if variant == VANILLA_KEY:
@@ -218,14 +205,15 @@ def main():
                                       f"DHNSW[{variant}] ({args.dataset})", k=args.top_k,
                                       densities=densities, ef_vanilla=ef_vanilla,
                                       cv_transform=variant)
-        rows.append({**common, "CV_Transform": variant, **res})
+        rows.append({**run_metadata(args.phase, args.dataset, variant, args.seed),
+                     "N": len(train), "Dim": train.shape[1], "ef_ref": ef_vanilla, **res})
         save()  # incremental, so --resume is safe against a mid-sweep interruption
 
     df = save()
     print("\n" + df.to_string(index=False))
 
-    if args.plot:
-        _plot(df, args.dataset, args.plot)
+    if plot_path:
+        _plot(df, args.dataset, plot_path)
 
 
 if __name__ == "__main__":
