@@ -61,6 +61,7 @@ def build_arg_parser():
     p.add_argument("--top-k", type=int, default=TOP_K)
     p.add_argument("--stem", default="hdf5_experiment",
                    help="Output filename stem, e.g. c3_highdim or c10_backbone.")
+    p.add_argument("--title", default=None, help="Figure title. Defaults to the stem.")
     p.add_argument("--variants", nargs="+", default=[VANILLA_KEY, DHNSW_KEY],
                    choices=list(ALL_VARIANTS),
                    help="Add 'vanilla_ef_ref' to also build vanilla at DHNSW's ef_ref. "
@@ -210,7 +211,10 @@ def main():
               f"degree {v['Avg_Degree']:.2f} -> {d['Avg_Degree']:.2f}")
 
     if plot_path:
-        _plot(df, plot_path, f"{args.stem} (N={args.num_vectors}, seed {args.seed})")
+        head = args.title or args.stem
+        dims = ", ".join(sorted({f"{int(d)}d" for d in df["Dim"]}))
+        _plot(df, plot_path,
+              f"{head}  ({dims}, N={int(df['N'].max())}, seed {args.seed})")
 
 
 if __name__ == "__main__":
