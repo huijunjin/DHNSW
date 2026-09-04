@@ -18,10 +18,10 @@ Environment: Hallasan (i7-12700F, 94 GB), conda env `dhnsw`
 
 | | Vanilla HNSW | DHNSW | Change |
 |---|---|---|---|
-| Build time | 623.73 s | 571.80 s | **−8.33 %** |
-| Peak memory (tracemalloc) | 153.23 MB | 97.68 MB | **−36.25 %** |
-| Recall@100 | 99.32 % | 98.15 % | −1.17 %p |
-| Average degree | 31.00 | 17.78 | −42.7 % |
+| Build time | 610.73 s | 549.29 s | **−10.06 %** |
+| Peak memory (tracemalloc) | 153.21 MB | 97.36 MB | **−36.45 %** |
+| Recall@100 | 99.29 % | 98.17 % | −1.12 %p |
+| Average degree | 31.00 | 17.79 | −42.6 % |
 
 Density statistics for this run: CV = 0.2634, giving M ∈ [9, 22] and
 ef ∈ [90, 207]. ef_ref = 149 (Eq. 1 at d = 784); vanilla runs at ef = 100.
@@ -30,10 +30,10 @@ ef ∈ [90, 207]. ef_ref = 149 (Eq. 1 at d = 784); vanilla runs at ef = 100.
 
 | | Paper (Fig. 2/3) | This run |
 |---|---|---|
-| Vanilla recall | 99.33 % | **99.32 %** |
-| DHNSW recall | 98.64 % | 98.15 % |
-| Build time improvement | 13.29 % | 8.33 % |
-| Memory improvement | 32.44 % | 36.25 % |
+| Vanilla recall | 99.33 % | **99.29 %** |
+| DHNSW recall | 98.64 % | 98.17 % |
+| Build time improvement | 13.29 % | 10.06 % |
+| Memory improvement | 32.44 % | 36.45 % |
 
 Vanilla recall lands within 0.01 %p of the published value, which is the useful
 signal here: the data loading, the distance function and the unmodified
@@ -47,10 +47,10 @@ CV — which is what sets the M and ef ranges each node is scaled between. The
 published numbers come from an unseeded run; this one is pinned to seed 42 so it
 can be reproduced. Expect a spread across seeds, not a single number.
 
-**Caveat on the timing figures.** A 7 GB dataset download was running on the same
-machine during this measurement, so the two build times are not clean. Recall,
-memory and average degree are unaffected. Re-run on an idle machine before
-quoting a build-time improvement in the dissertation.
+**On the timing figures.** These come from a re-run on an idle machine
+(2026-09-04). An earlier run had a 7 GB download in flight and reported 8.33 %;
+memory, recall and degree were identical to within 0.03 %, so only the build
+times had been affected. Quote the idle-machine numbers.
 
 ## What to compare against later
 
