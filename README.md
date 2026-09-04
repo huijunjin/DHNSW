@@ -58,3 +58,25 @@ results/             experiment output
 
 `main_original.py` hardcodes `DATASET_DIR = "../dataset"` and a 1000-vector
 default; it is kept as-is for provenance and is not the entry point.
+
+## Review-comment experiments (thesis Chapter 3)
+
+Each experiment writes data to `results/phase1/` and an interpretation to
+`findings/`. Every runner takes `--smoke`, `--resume` and `--phase`.
+
+| Comment | Question | Runner | Writeup |
+|---|---|---|---|
+| C2 | What does the density estimate cost? | `run_c2_phases.py` | `findings/C2_PHASE_OVERHEAD.md` |
+| C3 | Does the gain hold at 1536d+? | `run_hdf5_experiment.py` | `findings/C3_HIGH_DIMENSIONAL.md` |
+| C7 | Is the CV term's form justified? | `run_c7_ablation.py` | `findings/C7_CV_TRANSFORM.md` |
+| C8 | Is RP-KNN worth its cost? | `run_c8_density_method.py` | `findings/C8_DENSITY_METHOD.md` |
+| C10 | Does it survive a backbone change? | `run_hdf5_experiment.py` | `findings/C10_BACKBONE.md` |
+| C11 | Does it survive parallel construction? | `run_c11_threads.py` | `findings/C11_THREAD_SCALING.md` |
+
+`scripts/make_synthesis.py` draws the cross-experiment result from those CSVs:
+DHNSW's saving is monotone in the corpus's density contrast (CV) across four
+datasets, three dimensionalities and four encoders.
+
+The C++ port used by C11 lives in `cpp/` — see `cpp/VENDORING.md` for what was
+changed and `scripts/verify_cpp_port.py` for the checks that the untouched
+path still reproduces stock hnswlib.
