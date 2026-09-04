@@ -118,15 +118,47 @@ def adjust_ef_by_dim(ef_base, dim):
     return ef_base + (dim // EF_SCALE_FACTOR) ** 2
 
 
-def set_dynamic_hnsw_params_by_std(densities, m_vanilla, ef_vanilla, scale_factor=SCALE_FACTOR):
+CV_TRANSFORMS = ("linear", "exp", "sqrt", "ratio")
+
+
+def cv_dispersion(densities, cv_transform):
+    """The CV term itself (paper Eq. 2-5 uses std/mean). `ratio` (C7 ablation)
+    swaps in a bounded alternative, sigma / (mu + sigma), instead."""
+    mu = np.mean(densities)
+    sigma = np.std(densities)
+    if cv_transform == "ratio":
+        return sigma / (mu + sigma)
+    return sigma / mu
+
+
+def cv_delta_factor(cv, scale_factor, cv_transform):
+    """How much of m_vanilla / ef_vanilla the CV term expands the range by.
+    `linear` is the paper's formula, unchanged; the others are C7 ablation
+    variants (see PLAN.md) that reshape the same CV -> delta mapping."""
+    if cv_transform == "exp":
+        return 1 - np.exp(-cv * scale_factor)
+    if cv_transform == "sqrt":
+        return np.sqrt(cv) * scale_factor
+    return cv * scale_factor  # linear, ratio
+
+
+def set_dynamic_hnsw_params_by_std(densities, m_vanilla, ef_vanilla,
+                                   scale_factor=SCALE_FACTOR, cv_transform="linear"):
     """M_low/M_high and ef_low/ef_high, paper Eq. (2)-(5). The CV term is
-    std/mean of the local densities."""
-    cv = np.std(densities) / np.mean(densities)
-    m_start = max(2, int(m_vanilla - m_vanilla * cv * scale_factor))
-    m_end = int(m_vanilla + m_vanilla * cv * scale_factor)
-    ef_start = max(10, int(ef_vanilla - ef_vanilla * cv * scale_factor))
-    ef_end = int(ef_vanilla + ef_vanilla * cv * scale_factor)
-    print(f"  CV: {cv:.4f}, M range: [{m_start}, {m_end}], EF range: [{ef_start}, {ef_end}]")
+    std/mean of the local densities.
+
+    `cv_transform` is a C7 ablation addition (see PLAN.md): it swaps how the
+    CV term is derived and how it scales into a range-expansion factor. The
+    default, "linear", is byte-for-byte the paper's original formula.
+    """
+    cv = cv_dispersion(densities, cv_transform)
+    delta = cv_delta_factor(cv, scale_factor, cv_transform)
+    m_start = max(2, int(m_vanilla - m_vanilla * delta))
+    m_end = int(m_vanilla + m_vanilla * delta)
+    ef_start = max(10, int(ef_vanilla - ef_vanilla * delta))
+    ef_end = int(ef_vanilla + ef_vanilla * delta)
+    print(f"  CV[{cv_transform}]: {cv:.4f} (delta={delta:.4f}), "
+          f"M range: [{m_start}, {m_end}], EF range: [{ef_start}, {ef_end}]")
     return cv, m_start, m_end, ef_start, ef_end
 
 
@@ -136,7 +168,7 @@ def calculate_recall(true_neighbors, retrieved):
 
 
 def measure_performance(hnsw_class, data, queries, true_neighbors, label, k,
-                        densities=None, ef_vanilla=None):
+                        densities=None, ef_vanilla=None, cv_transform="linear"):
     # Matches the original driver: vanilla HNSW runs at EF_VANILLA_BASE, while
     # the dimension-adjusted ef_ref (Eq. 1) is DHNSW's own contribution and is
     # passed in only for the dynamic variant.
@@ -147,7 +179,7 @@ def measure_performance(hnsw_class, data, queries, true_neighbors, label, k,
     start = time.time()
     if hnsw_class is DynamicHNSW:
         cv, m_start, m_end, ef_start, ef_end = set_dynamic_hnsw_params_by_std(
-            densities, M_VANILLA, ef_vanilla)
+            densities, M_VANILLA, ef_vanilla, cv_transform=cv_transform)
         hnsw = hnsw_class("l2", densities, m_start=m_start, m_end=m_end,
                           ef_start=ef_start, ef_end=ef_end)
     else:
@@ -186,6 +218,9 @@ def build_arg_parser():
     p.add_argument("--seed", type=int, default=None,
                    help="random_state for the RP density estimate. The original passes none; "
                         "set it for a repeatable baseline.")
+    p.add_argument("--cv-transform", default="linear", choices=list(CV_TRANSFORMS),
+                   help="C7 ablation (see PLAN.md): how the CV term scales into the M/ef "
+                        "range. 'linear' is the paper's original formula, unchanged.")
     p.add_argument("--out", default=None, help="CSV path to write.")
     return p
 
@@ -210,13 +245,15 @@ def main():
         # Same order as the original driver: Dynamic first, then vanilla.
         dyn = measure_performance(DynamicHNSW, train, queries, true_neighbors,
                                   f"Dynamic HNSW ({name})", k=args.top_k,
-                                  densities=densities, ef_vanilla=ef_vanilla)
+                                  densities=densities, ef_vanilla=ef_vanilla,
+                                  cv_transform=args.cv_transform)
         van = measure_performance(HNSW, train, queries, true_neighbors,
                                   f"Vanilla HNSW ({name})", k=args.top_k)
 
         for variant, res in (("DHNSW", dyn), ("Vanilla HNSW", van)):
             rows.append({"Dataset": name, "Variant": variant, "N": len(train),
-                         "Dim": train.shape[1], "ef_ref": ef_vanilla, "seed": args.seed, **res})
+                         "Dim": train.shape[1], "ef_ref": ef_vanilla, "seed": args.seed,
+                         "CV_Transform": args.cv_transform, **res})
 
         t_imp = (van["Build_Time_s"] - dyn["Build_Time_s"]) / van["Build_Time_s"] * 100
         m_imp = (van["Memory_MB"] - dyn["Memory_MB"]) / van["Memory_MB"] * 100
