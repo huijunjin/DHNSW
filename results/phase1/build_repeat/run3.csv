@@ -1,0 +1,3 @@
+Dataset,Variant,N,Dim,ef_ref,seed,CV_Transform,Density_Method,Build_Time_s,Memory_MB,Recall_pct,CV,Avg_Degree
+mnist,DHNSW,60000,784,149,42,linear,rp,559.6386251449585,97.662567,98.17,0.2633617197445662,17.78100494185186
+mnist,Vanilla HNSW,60000,784,149,42,linear,rp,610.7538328170776,153.190356,99.3,,31.009287635249233
